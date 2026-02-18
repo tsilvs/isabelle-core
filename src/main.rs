@@ -247,6 +247,8 @@ async fn main() -> std::io::Result<()> {
         // Set up all generic routes
         let mut app = App::new()
             .app_data(data.clone())
+            .wrap(actix_web::middleware::Logger::default())
+						// TODO configurable log levels?
             .wrap(Cors::permissive())
             .wrap(IdentityMiddleware::default())
             .wrap(session_middleware(

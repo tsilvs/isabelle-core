@@ -27,11 +27,24 @@ use argon2::{
 };
 use rand::Rng;
 
-/// Verify password: the real password, the hash
+/// Returns true when `pw_hash` is a well-formed PHC string (i.e. already
+/// hashed). Used by the database merger to detect plain-text seed passwords.
+pub fn is_hashed_password(pw_hash: &str) -> bool {
+    PasswordHash::new(pw_hash).is_ok()
+}
+
+/// Verify password: the real password, the hash.
+/// Returns false (never panics) when the stored hash is not a valid PHC
+/// string — e.g. a plain-text or differently-encoded password imported
+/// from seed data.
 pub fn verify_password(pw: &str, pw_hash: &str) -> bool {
-    let parsed_hash = PasswordHash::new(&pw_hash);
+	//TODO: Critical security function, requires review and audit
+    let parsed_hash = match PasswordHash::new(pw_hash) {
+        Ok(h) => h,
+        Err(_) => return false,
+    };
     Argon2::default()
-        .verify_password(pw.as_bytes(), &parsed_hash.unwrap())
+        .verify_password(pw.as_bytes(), &parsed_hash)
         .is_ok()
 }
 
@@ -45,14 +58,33 @@ pub fn get_new_salt() -> String {
 pub fn get_password_hash(pw: &str, salt: &str) -> String {
     let argon2 = Argon2::default();
 
-    let saltstr = SaltString::from_b64(&salt).unwrap();
-    let password_hash = argon2.hash_password(pw.as_bytes(), saltstr.as_salt());
-
-    return password_hash.unwrap().serialize().as_str().to_string();
+    let saltstr = match SaltString::from_b64(salt) {
+        Ok(s) => s,
+        Err(_) => return String::new(),
+    };
+    match argon2.hash_password(pw.as_bytes(), saltstr.as_salt()) {
+        Ok(hash) => hash.serialize().as_str().to_string(),
+        Err(_) => String::new(),
+    }
 }
 
 /// Generate new OTP code
 pub fn get_otp_code() -> String {
     let num = rand::thread_rng().gen_range(100000000..999999999);
     num.to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn print_admin_hash() {
+        let salt = get_new_salt();
+        let hash = get_password_hash("admin", &salt);
+        println!("\nadmin argon2id hash: {}", hash);
+        assert!(!hash.is_empty());
+        // Verify the round-trip works
+        assert!(verify_password("admin", &hash));
+    }
 }

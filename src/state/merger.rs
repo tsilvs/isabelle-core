@@ -23,10 +23,15 @@
  */
 #![cfg(not(feature = "full_file_database"))]
 use crate::state::store::*;
+use crate::util::crypto::{get_new_salt, get_password_hash, is_hashed_password};
 use log::info;
 
 /// Merge collections from one store to another.
 /// This is done only once, so no need to optimize too much.
+///
+/// Special handling for the `user` collection: any `password` field that is
+/// not already a PHC-format argon2 hash (i.e. plain-text from seed data) is
+/// hashed with argon2id before being written to the target store.
 pub async fn merge_database(st1: &mut dyn Store, st2: &mut dyn Store) {
     let collections = st1.get_collections().await;
     for collection in &collections {
@@ -34,7 +39,18 @@ pub async fn merge_database(st1: &mut dyn Store, st2: &mut dyn Store) {
         let items = st1.get_all_items(collection, "id", "").await;
         for item in &items.map {
             info!("Setting {} item {}", &collection, &item.0);
-            st2.set_item(&collection, &item.1, false).await;
+            let mut itm = item.1.clone();
+						// TODO: Outfactor into a utility function?
+            if collection == "user" {
+                let pw = itm.safe_str("password", "");
+                if !pw.is_empty() && !is_hashed_password(&pw) {
+                    info!("Hashing plain-text password for user id {}", itm.id);
+                    let salt = get_new_salt();
+                    let hash = get_password_hash(&pw, &salt);
+                    itm.set_str("password", &hash);
+                }
+            }
+            st2.set_item(&collection, &itm, false).await;
         }
     }
 }
