@@ -59,8 +59,8 @@ pub struct Args {
     #[arg(long, default_value(""))]
     pub py_path: String,
 
-    /// Port number
-    #[arg(long, default_value("0.0.0.0"))]
+    /// Bind address (default "::" enables dual-stack IPv4+IPv6 on Linux)
+    #[arg(long, default_value("::"))]
     pub bind_addr: String,
 
     /// Port number
