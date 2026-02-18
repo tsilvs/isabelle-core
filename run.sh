@@ -45,7 +45,7 @@ gh_login=""
 gh_password=""
 plugin_dir=""
 cookie_http_insecure=""
-db_url="mongodb://localhost:27017"
+db_url="mongodb://127.0.0.1:27017"
 
 while test -n "$1" ; do
 	case "$1" in

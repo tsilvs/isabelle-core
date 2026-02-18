@@ -78,7 +78,7 @@ echo "  DB:         ${DB}"
 echo "  Data:       ${DATA_DIR}"
 echo "  Logs:       ${LOGS_DIR}"
 echo "  Container:  ${CONTAINER_NAME}"
-echo "  Port:       ${PORT}:27017"
+echo "  Port:       ${PORT}:27017 (IPv4+IPv6)"
 echo "  Image:      ${IMAGE}"
 echo "============================================="
 echo
@@ -129,9 +129,11 @@ fi
 echo
 
 # ── Build mongod extra args ────────────────────────────────────────────────────
-MONGOD_ARGS=""
+# Always bind to all IPv4 and IPv6 interfaces so clients can reach the container
+# regardless of whether their system resolves "localhost" to 127.0.0.1 or ::1.
+MONGOD_ARGS="--ipv6 --bind_ip_all"
 if [ "${LOGAPPEND}" -eq 1 ]; then
-	MONGOD_ARGS="--logappend"
+	MONGOD_ARGS="${MONGOD_ARGS} --logappend"
 fi
 
 # ── Run the container ─────────────────────────────────────────────────────────

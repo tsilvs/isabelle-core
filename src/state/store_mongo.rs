@@ -32,7 +32,8 @@ use isabelle_dm::data_model::item::*;
 use log::{debug, info, trace};
 use serde_json::Value;
 
-use mongodb::{bson::doc, Client, Collection, IndexModel};
+// use mongodb::{bson::doc, Client, Collection, IndexModel};
+use mongodb::{bson::doc, Client, Collection};
 use std::collections::HashMap;
 use tokio::time::{sleep, Duration};
 
@@ -83,8 +84,27 @@ impl StoreMongo {
                 let client = Client::with_uri_str(&self.path).await;
                 match client {
                     Ok(cl) => {
-                        self.client = Some(cl);
-                        return true;
+                        // Client::with_uri_str is lazy and always succeeds even when
+                        // MongoDB is unreachable. Ping to confirm the connection is live
+                        // before caching the client.
+                        let ping = cl
+                            .database("admin")
+                            .run_command(bson::doc! { "ping": 1 })
+                            .await;
+                        match ping {
+                            Ok(_) => {
+                                self.client = Some(cl);
+                                return true;
+                            }
+                            Err(err) => {
+                                self.client = None;
+                                info!(
+                                    "MongoDB ping failed ({} / {}): {}, retrying in 30 seconds",
+                                    self.path, self.database_name, err
+                                );
+                                sleep(Duration::from_secs(30)).await;
+                            }
+                        }
                     }
                     Err(_err) => {
                         self.client = None;
@@ -143,7 +163,7 @@ impl Store for StoreMongo {
             let internals = self.get_internals().await;
             let collections = internals.safe_strstr("collections", &HashMap::new());
             debug!("Collections: {}", collections.len());
-            let db = self.client.as_ref().unwrap().database(&self.database_name);
+            // let db = self.client.as_ref().unwrap().database(&self.database_name);
             for coll_name in collections {
                 info!("Registering collection: {}", &coll_name.1);
 
