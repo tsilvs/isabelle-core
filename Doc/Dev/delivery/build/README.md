@@ -5,7 +5,8 @@
 
 ## Checklist
 
-1. [x] fork `isabelle-core` -> `cargo build`
+1. [x] fork `isabelle-core` to `${prefix}/isabelle-core` of your choice
+	+ [x] build: `cargo build`
 2. clone:
 	+ [x] [`intranet`](https://github.com/interpretica-io/intranet)
 		+ [x] build: `trunk build`
@@ -17,6 +18,7 @@
 	+ [x] [`isabelle-plugin-security`](https://github.com/isabelle-platform/isabelle-plugin-security)
 		+ [x] build: `cargo build`
 3. [x] plugin builds -> `.so` -> `./isabelle-core/`
+	+ [ ] copy with something like `cp ./*/isabelle-plugin-*/target/debug/*.so ${prefix}/isabelle-core/target/debug/`
 4. [ ] clone [intranet-data-gen](https://github.com/interpretica-io/intranet-data-gen)
 	+ [ ] run `./interpretica-io/intranet-data-gen/generate.sh ./interpretica-io/intranet-data/`
 5. [run `mongo` db OCI container](#mongo-oci-script)
@@ -33,42 +35,32 @@
 >
 > Read, verify, adjust & run [`check-fs` tool script](../../../../tools/check-fs.sh)
 
+Use [`tools/mongo-setup.sh`](../../../../tools/mongo-setup.sh):
+
 ```sh
-#!/usr/bin/env bash
+# Foreground (see logs directly):
+./tools/mongo-setup.sh \
+	--prefix ./$(id -un) \
+	--db intranet \
+	--port 27017
 
-# example parameters
-
-local prefix="path/to/data/parent/"
-local logs="path/to/logs/root/"
-local db="intranet"
-
-# Prepare data directory
-mkdir -p ${prefix}/${db}-data
-sudo chown 1000 ${prefix}/${db}-data
-# make it group-writable so container can also write:
-chmod g+w ${prefix}/${db}-data
-podman unshare chown 999 ${prefix}/${db}-data
-
-# Prepare logs directory
-mkdir -p ${logs}/${db}-logs
-sudo chown 1000 ${logs}/${db}-logs
-# make it group-writable so container can also write:
-chmod g+w ${logs}/${db}-logs
-podman unshare chown 999 ${logs}/${db}-logs
-
-# Vacate the container name
-podman stop mongo-${db} && podman rm mongo-${db}
-
-# Run the container
-podman run \
-	--pub 27017:27017 \
-	--name mongo-${db} \
-	--volume ${prefix}/${db}-data:/data/db:Z \
-	--volume ${logs}/${db}-logs:/var/log/mongodb:Z \
+# Background:
+./tools/mongo-setup.sh \
+	--prefix ./$(id -un) \
+	--db intranet \
+	--port 27017 \
 	--detach \
-	docker.io/library/mongo:7.0
+	--logappend
 
-# --detach is only when you don't need logs in terminal
+# Separate logs directory:
+./tools/mongo-setup.sh \
+	--prefix ./$(id -un) \
+	--prefix-logs ./$(id -un)/logs \
+	--db intranet \
+	--detach
+
+# All options:
+./tools/mongo-setup.sh --help
 ```
 
 ### `isabelle-core` run wrapper script
@@ -76,18 +68,21 @@ podman run \
 ```sh
 #!/usr/bin/env bash
 
+local platform_fork_root="$(id -un)" # can be anything you specify, for me it's my username
+local prefix="./${platform_fork_root}" # can be anything you specify, for me it's a relative path from current work dir
+
 # Link data (example)
 # `-r` important for correct path resolving
 # without it `ln` writes a literal path that can be incorrect and should be absolute
 ln -rs \
 	./interpretica-io/intranet-data \
-	./isabelle-platform/data-intranet
+	${prefix}/data-intranet
 
 # IMPORTANT: FIRST RUN TO IMPORT SYSTEM DATA!!!
 
-(cd ./isabelle-platform/isabelle-core && make) && \
+(cd ${prefix}/isabelle-core && make) && \
 (killall isabelle-core || true) && \
-./isabelle-platform/isabelle-core/run.sh \
+${prefix}/isabelle-core/run.sh \
 	--data-path ./isabelle-platform/data-intranet \
 	--database intranet \
 	--plugin-dir . \
@@ -97,7 +92,7 @@ ln -rs \
 # After build is done, just for testing - run like this
 
 (killall isabelle-core || true) && \
-./isabelle-platform/isabelle-core/run.sh \
+${prefix}/isabelle-core/run.sh \
 	--data-path ./isabelle-platform/data-intranet \
 	--database intranet \
 	--plugin-dir . \

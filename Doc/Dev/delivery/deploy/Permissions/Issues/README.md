@@ -9,8 +9,6 @@
 + This maps to host UID `524288 + 999 - 1 = 525286` — exactly what you see.
 + The directory was created/owned by the container's mongodb user, which the host sees as unmapped `UID 525286`.
 
-**SELinux is not the problem** — label `container_file_t` is already correct, no `:Z` needed.
-
 ### Fix ownership
 
 ```bash
@@ -23,8 +21,5 @@ podman unshare chown 999 ${your_path_to_build_area_root}/${db}-data
 ```
 
 ### Recreate MongoDB container
-
-> [!NOTE]
-> probably no `:Z` strictly needed — label already correct
 
 Run [`mongo` db OCI container](../../../build/README.md#mongo-oci-script)
