@@ -145,79 +145,19 @@ impl Store for StoreMongo {
             debug!("Collections: {}", collections.len());
             let db = self.client.as_ref().unwrap().database(&self.database_name);
             for coll_name in collections {
-                debug!("Create collection {}", &coll_name.1);
+                info!("Registering collection: {}", &coll_name.1);
 
-                // Mongo can report successful URI parsing / client creation, but still fail
-                // actual operations until server selection succeeds. During initial startup
-                // we want to retry these transient errors instead of panicking.
-                loop {
-                    let create_res = db.create_collection(&coll_name.1).await;
-                    if create_res.is_err() {
-                        info!(
-                            "MongoDB operation failed during initial connect (create_collection: {}), retrying in 30 seconds",
-                            &coll_name.1
-                        );
-                        sleep(Duration::from_secs(30)).await;
-                        // Drop client and reconnect to force fresh server selection
-                        self.client = None;
-                        self.do_conn().await;
-                        continue;
-                    }
-
-                    let coll: Collection<Item> = db.collection(&coll_name.1);
-                    let index: IndexModel =
-                        IndexModel::builder().keys(doc! { "id": 1 }).build();
-                    let _result = coll.create_index(index).await;
-
-                    let coll_idx = self.collections.len().try_into().unwrap();
-                    self.collections.insert(coll_name.1.to_string(), coll_idx);
-
-                    let mut map: HashMap<u64, bool> = HashMap::new();
-                    let filter = doc! {}; // An empty filter matches all documents
-
-                    // Find documents in the collection and fill hash map/counter
-                    let cursor_res = coll.find(filter).await;
-                    if cursor_res.is_err() {
-                        info!(
-                            "MongoDB operation failed during initial connect (find: {}), retrying in 30 seconds",
-                            &coll_name.1
-                        );
-                        sleep(Duration::from_secs(30)).await;
-                        self.client = None;
-                        self.do_conn().await;
-                        continue;
-                    }
-
-                    let mut cursor = cursor_res.unwrap();
-                    let mut count = 0;
-                    loop {
-                        let next_res = cursor.try_next().await;
-                        match next_res {
-                            Ok(opt) => {
-                                if let Some(doc) = opt {
-                                    map.insert(doc.id, true);
-                                    count = std::cmp::max(count, doc.id);
-                                } else {
-                                    break;
-                                }
-                            }
-                            Err(_e) => {
-                                info!(
-                                    "MongoDB operation failed during initial connect (cursor: {}), retrying in 30 seconds",
-                                    &coll_name.1
-                                );
-                                sleep(Duration::from_secs(30)).await;
-                                self.client = None;
-                                self.do_conn().await;
-                                continue;
-                            }
-                        }
-                    }
-
-                    self.items.insert(coll_idx, map);
-                    self.items_count.insert(coll_idx, count);
-                    break;
-                }
+                // Don't create collection explicitly - MongoDB will create it lazily
+                // when first document is inserted during merge_database
+                
+                let coll_idx = self.collections.len().try_into().unwrap();
+                self.collections.insert(coll_name.1.to_string(), coll_idx);
+                
+                // Initialize empty item tracking - will be populated during merge
+                self.items.insert(coll_idx, HashMap::new());
+                self.items_count.insert(coll_idx, 0);
+                
+                info!("Collection {} registered", &coll_name.1);
             }
         } else {
             info!("Not connected");
@@ -227,21 +167,9 @@ impl Store for StoreMongo {
     async fn disconnect(&mut self) {}
 
     async fn get_collections(&mut self) -> Vec<String> {
-        let colls = self
-            .client
-            .as_ref()
-            .unwrap()
-            .database(&self.database_name)
-            .list_collection_names()
-            .await
-            .unwrap();
-        let mut lst: Vec<String> = Vec::new();
-
-        for coll in &colls {
-            lst.push(coll.clone());
-        }
-
-        return lst;
+        // Return collections already registered during connect()
+        // This avoids querying MongoDB which may fail or hang
+        self.collections.keys().map(|k| k.clone()).collect()
     }
 
     async fn get_item_ids(&mut self, collection: &str) -> HashMap<u64, bool> {
@@ -465,9 +393,19 @@ impl Store for StoreMongo {
         };
 
         if old_itm.as_ref().is_none() {
-            let _res = coll.insert_one(new_itm.clone()).await;
+            let res = coll.insert_one(new_itm.clone()).await;
+            if let Err(e) = res {
+                info!("MongoDB insert_one failed for {} id {}: {}", collection, new_itm.id, e);
+            } else {
+                info!("Successfully inserted {} id {} to MongoDB", collection, new_itm.id);
+            }
         } else {
-            let _res = coll.replace_one(filter, new_itm.clone()).await;
+            let res = coll.replace_one(filter, new_itm.clone()).await;
+            if let Err(e) = res {
+                info!("MongoDB replace_one failed for {} id {}: {}", collection, new_itm.id, e);
+            } else {
+                info!("Successfully replaced {} id {} in MongoDB", collection, new_itm.id);
+            }
         }
 
         let coll_id = self.collections[collection];
