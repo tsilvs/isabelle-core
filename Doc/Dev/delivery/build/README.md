@@ -65,36 +65,34 @@ Use [`tools/mongo-setup.sh`](../../../../tools/mongo-setup.sh):
 
 ### `isabelle-core` run wrapper script
 
+Use [`tools/isabelle-run.sh`](../../../../tools/isabelle-run.sh):
+
 ```sh
-#!/usr/bin/env bash
-
-local platform_fork_root="$(id -un)" # can be anything you specify, for me it's my username
-local prefix="./${platform_fork_root}" # can be anything you specify, for me it's a relative path from current work dir
-
-# Link data (example)
-# `-r` important for correct path resolving
-# without it `ln` writes a literal path that can be incorrect and should be absolute
-ln -rs \
-	./interpretica-io/intranet-data \
-	${prefix}/data-intranet
-
-# IMPORTANT: FIRST RUN TO IMPORT SYSTEM DATA!!!
-
-(cd ${prefix}/isabelle-core && make) && \
-(killall isabelle-core || true) && \
-${prefix}/isabelle-core/run.sh \
-	--data-path ./isabelle-platform/data-intranet \
-	--database intranet \
+# First run: build + link data + import from local files into MongoDB, then exit
+./tools/isabelle-run.sh \
+	--prefix ./$(id -un) \
+	--db intranet \
+	--data-source ./interpretica-io/intranet-data \
 	--plugin-dir . \
 	--cookie-http-insecure \
+	--build \
 	--first-run
 
-# After build is done, just for testing - run like this
-
-(killall isabelle-core || true) && \
-${prefix}/isabelle-core/run.sh \
-	--data-path ./isabelle-platform/data-intranet \
-	--database intranet \
+# Normal run (binary already built):
+./tools/isabelle-run.sh \
+	--prefix ./$(id -un) \
+	--db intranet \
 	--plugin-dir . \
 	--cookie-http-insecure
+
+# Force rebuild:
+./tools/isabelle-run.sh \
+	--prefix ./$(id -un) \
+	--db intranet \
+	--plugin-dir . \
+	--cookie-http-insecure \
+	--build
+
+# All options:
+./tools/isabelle-run.sh --help
 ```
